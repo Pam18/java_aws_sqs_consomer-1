@@ -6,8 +6,10 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+
+import com.google.gson.Gson;
 
 import br.com.ecommerce_sqs.dto.InfoPedidoDTO;
 
@@ -45,49 +47,35 @@ public class SQSService {
 
         for (Message mess : messages) {
 
-            String stringToObject = mess.body();
-            InfoPedidoDTO pedido = new InfoPedidoDTO();
+            String jsonMess = mess.body();
 
-            System.out.println(stringToObject);
+            System.out.println(mess.body());
 
-            stringToObject = stringToObject.replace("from", "");
-            stringToObject = stringToObject.replace("to", "");
-            stringToObject = stringToObject.replace("numPedido", "");
-            stringToObject = stringToObject.substring(5, stringToObject.lastIndexOf("}"));
-
-            pedido.setFrom(stringToObject.substring(1, (stringToObject.indexOf(",") - 1)));
-            pedido.setTo(stringToObject.substring((stringToObject.indexOf(":") + 2),
-                    (stringToObject.lastIndexOf(",") - 1)));
-            pedido.setNumPedido(Integer.valueOf(stringToObject.substring(stringToObject.lastIndexOf(":") + 1)));
-
-            System.out.println(pedido.getFrom());
+            InfoPedidoDTO jsonPedido = new Gson().fromJson(jsonMess, InfoPedidoDTO.class);
 
             String etapa = "transacao";
-            String from = pedido.getFrom();
-            String to = pedido.getTo();
+            String from = jsonPedido.getFrom();
+            String to = jsonPedido.getTo();
+            LocalDateTime now = LocalDateTime.now();
 
-            // // String etapa = "transicao";
-            // // String from = "messg";
-
-            // // String msm = "{'from':'transicao','to':'notaFisca','pedido':1}";
-
-            // System.out.println(mess.body());
-
-            // InfoPedidoDTO infoPedido = new Gson().fromJson(mess.body(),
-            // InfoPedidoDTO.class);
-
-            // System.out.println(infoPedido.getFrom());
-
-            System.out.println("Mensagem: " + from + to + etapa);
+            System.out.println("Mensagem: " + jsonPedido.getFrom() + " - " + jsonPedido.getTo() + " - "
+                                + etapa);
+            
             if (from.equals("pedidos") && etapa.equals(to)) {
-                System.out.println("O pedido foi enviado para aprovação de crédito");
+                System.out.println("[" + now + "]" + " {#Pedido" + jsonPedido.getNumPedido() + "}" + "TRANSAÇÃO APROVADA.");
                 deleteMessages(sqsClient, createResult.queueUrl(), mess);
+                
+                jsonPedido.setFrom(etapa);
+                jsonPedido.setTo("notaFiscal");
+                String stringPedidoOut = new Gson().toJson(jsonPedido);
+                sendMessage(sqsClient, createResult.queueUrl(), stringPedidoOut);
+                System.out.println("MENSAGEM ENVIADA PARA A PRÓXIMA ETAPA.");
 
-                InfoPedidoDTO pedidoSaida = new InfoPedidoDTO(etapa, "notaFiscal", pedido.getNumPedido());
-                sendMessage(sqsClient, createResult.queueUrl(), pedidoSaida.toString());
+                jsonPedido.setTo("pedidos");
 
-                pedidoSaida.setTo("pedidos");
-                sendMessage(sqsClient, createResult.queueUrl(), pedidoSaida.toString());
+                String stringPedidoBack = new Gson().toJson(jsonPedido);
+                sendMessage(sqsClient, createResult.queueUrl(), stringPedidoBack);
+                System.out.println("MENSAGEM ENVIADA PARA A PRIMEIRA ETAPA.");
             }
         }
 
@@ -103,7 +91,7 @@ public class SQSService {
 
         List<Message> messages = sqsClient.receiveMessage(receiveMessageRequest).messages();
         return messages;
-    }
+}
 
     public static void deleteMessages(SqsClient sqsClient, String queueUrl, Message message) {
         DeleteMessageRequest deleteMessageRequest = DeleteMessageRequest.builder()
